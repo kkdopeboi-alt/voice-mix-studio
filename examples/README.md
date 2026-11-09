@@ -18,8 +18,8 @@ python examples/make_demo_assets.py
 
 使用两条示例文案及本脚本生成的自有插画，已完成配音、字幕和混剪：
 
-- [示例一：记录小店日常](https://github.com/kkdopeboi-alt/voice-mix-studio/releases/download/v1.4.1/demo-shop-01.mp4)
-- [示例二：饮品制作的细节](https://github.com/kkdopeboi-alt/voice-mix-studio/releases/download/v1.4.1/demo-shop-02.mp4)
+- [示例一：记录小店日常](https://github.com/kkdopeboi-alt/voice-mix-studio/releases/download/v1.4.2/demo-shop-01.mp4)
+- [示例二：饮品制作的细节](https://github.com/kkdopeboi-alt/voice-mix-studio/releases/download/v1.4.2/demo-shop-02.mp4)
 
 ![演示成片截图，画面为程序化插画](../docs/media/demo-still.jpg)
 

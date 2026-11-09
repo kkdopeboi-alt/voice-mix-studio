@@ -127,7 +127,7 @@ class APITests(unittest.TestCase):
         self.assertEqual(res.status_code,200,res.text)
         p=res.json();pid=p['id']
         restored=self.client.get('/api/mv/projects/'+pid).json()
-        self.assertEqual(restored['audio'],self.p['audio'])
+        self.assertEqual(Path(restored['audio']).resolve(),Path(self.p['audio']).resolve())
         update=dict(version=p['version'],project={'name':'新名称'})
         self.assertEqual(self.client.put('/api/mv/projects/'+pid,json=update).status_code,200)
         self.assertEqual(self.client.put('/api/mv/projects/'+pid,json=update).status_code,400)
