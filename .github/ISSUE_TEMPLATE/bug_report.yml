@@ -1,0 +1,21 @@
+name: 问题反馈
+description: 报告可复现的问题（请勿上传隐私或凭据）
+body:
+  - type: input
+    id: version
+    attributes:
+      label: APP 页脚版本与操作系统
+      placeholder: v1.4.0 / Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤、期望与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 去除隐私后的错误片段
+      description: 不要包含个人素材路径、客户文案、项目存档或 token。

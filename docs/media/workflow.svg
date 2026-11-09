@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300">
+<rect width="1200" height="300" rx="20" fill="#15171b"/>
+<g font-family="Segoe UI,Microsoft YaHei,sans-serif"><text x="40" y="55" fill="#c4ef8b" font-size="25" font-weight="bold">VoiceMix Studio</text><text x="40" y="91" fill="#aab3bf" font-size="17">文案先行 · 素材复用 · 批量制作 · 人工精修</text>
+<g fill="#252b32" stroke="#46503e"><rect x="40" y="125" width="245" height="120" rx="12"/><rect x="330" y="125" width="245" height="120" rx="12"/><rect x="620" y="125" width="245" height="120" rx="12"/><rect x="910" y="125" width="245" height="120" rx="12"/></g>
+<g fill="#edf2e9" font-size="22"><text x="68" y="170">准备卖点文案</text><text x="358" y="170">选择素材范围</text><text x="648" y="170">生成多个版本</text><text x="938" y="170">检查、微调、导出</text></g>
+<g fill="#a9b4c0" font-size="16"><text x="68" y="205">单文案 / 多文案</text><text x="358" y="205">文件夹 / 单个文件</text><text x="648" y="205">配音 + 字幕 + 混剪</text><text x="938" y="205">保留创作者判断</text></g>
+<g fill="#c4ef8b" font-size="27"><text x="298" y="190">→</text><text x="588" y="190">→</text><text x="878" y="190">→</text></g></g></svg>
