@@ -32,6 +32,7 @@ class RenderError(RuntimeError):
 
 
 _CACHE_PUBLISH_LOCK = threading.Lock()
+_PART_LOCKS = [threading.Lock() for _ in range(64)]
 
 
 def esc_filter_path(p: str) -> str:
@@ -127,6 +128,16 @@ def _resolve_image(src: str, cache_dir: Path) -> str:
 
 
 def normalize_clip(
+    cfg: JobConfig, clip: ClipSpec, parts_dir: Path,
+    has_audio: bool, is_image: bool, overwrite: bool = False,
+) -> Path:
+    key=_part_key(cfg,clip,has_audio,is_image)
+    # Coalesce identical work requested by parallel variants without more RAM use.
+    with _PART_LOCKS[int(key,16)%len(_PART_LOCKS)]:
+        return _normalize_clip(cfg,clip,parts_dir,has_audio,is_image,overwrite)
+
+
+def _normalize_clip(
     cfg: JobConfig, clip: ClipSpec, parts_dir: Path,
     has_audio: bool, is_image: bool, overwrite: bool = False,
 ) -> Path:
@@ -318,8 +329,8 @@ def render_variant(
     if out_path.exists() and out_path.stat().st_size > 1024 and not overwrite:
         return out_path
 
-    text_dir = out_path.parent / "_texts"
-    text_dir.mkdir(exist_ok=True)
+    text_dir = parts_dir / "_texts" / uuid.uuid4().hex
+    text_dir.mkdir(parents=True,exist_ok=True)
 
     # ---- A. 归一化片段（带缓存）----
     part_paths: List[Path] = []
@@ -386,21 +397,8 @@ def render_variant(
     # ---- 视频滤镜：字幕 + 标题 ----
     vf_parts: List[str] = []
     # Grade the picture before any subtitle or title is drawn.
-    looks = {
-        "clear": (1.10, 0.012, 1.12, 1.0, 1.0),
-        "warm": (1.04, 0.008, 1.06, 1.04, 0.97),
-        "cool": (1.06, 0.0, 0.94, 0.97, 1.04),
-        "soft": (0.94, 0.025, 0.90, 1.01, 1.0),
-        "mono": (1.10, 0.0, 0.0, 1.0, 1.0),
-    }
-    if cfg.video_filter in looks and cfg.filter_strength > 0:
-        contrast, brightness, saturation, red, blue = looks[cfg.video_filter]
-        strength = cfg.filter_strength
-        vf_parts.append(
-            f"eq=contrast={1 + (contrast - 1) * strength}:"
-            f"brightness={brightness * strength}:saturation={1 + (saturation - 1) * strength}:"
-            f"gamma_r={1 + (red - 1) * strength}:gamma_b={1 + (blue - 1) * strength}"
-        )
+    from .looks import grade
+    vf_parts.append(grade(cfg.video_filter,cfg.filter_strength))
     sub_chain, _ = _subtitle_chain(cfg, variant, text_dir)
     if sub_chain:
         vf_parts.append(sub_chain)

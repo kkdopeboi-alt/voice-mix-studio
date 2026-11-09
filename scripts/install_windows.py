@@ -74,7 +74,7 @@ def shortcuts(exe):
 $ErrorActionPreference='Stop'
 $shell=New-Object -ComObject WScript.Shell
 $desktop=$shell.SpecialFolders.Item('Desktop')
-$paths=@((Join-Path $desktop 'VoiceMix Studio.lnk'),(Join-Path $desktop 'VoiceMix Studio（稳定启动）.lnk'))
+$paths=@((Join-Path $desktop 'VoiceMix Studio.lnk'),(Join-Path $desktop 'VoiceMix Studio（浏览器兼容模式）.lnk'))
 foreach($file in Get-ChildItem -LiteralPath $desktop -Filter '*VoiceMix*.lnk'){
   $old=$shell.CreateShortcut($file.FullName)
   if([IO.Path]::GetFileName($old.TargetPath) -ieq 'VoiceMixStudio.exe'){$paths+=$file.FullName}
@@ -83,7 +83,7 @@ foreach($path in ($paths|Select-Object -Unique)){
   $link=$shell.CreateShortcut($path)
   $link.TargetPath=$env:VOICEMIX_INSTALL_EXE
   $link.WorkingDirectory=[IO.Path]::GetDirectoryName($env:VOICEMIX_INSTALL_EXE)
-  $link.Arguments=if([IO.Path]::GetFileName($path) -match '稳定|兼容'){'--browser'}else{''}
+  $link.Arguments=if([IO.Path]::GetFileName($path) -match '浏览器|稳定|兼容'){'--browser'}else{''}
   $link.IconLocation=$env:VOICEMIX_INSTALL_EXE+',0'
   $link.Description='VoiceMix Studio '+$env:VOICEMIX_INSTALL_VERSION
   $link.Save()

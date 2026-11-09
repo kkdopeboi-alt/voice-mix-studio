@@ -7,7 +7,7 @@ import sys
 import subprocess
 from pathlib import Path
 
-VERSION = "1.4.2"
+VERSION = "1.5.0"
 PACKAGE_DIR = Path(__file__).resolve().parent
 
 

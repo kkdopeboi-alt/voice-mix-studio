@@ -35,6 +35,8 @@ from .render import render_batch, render_cover, probe_video_duration
 from .assets import probe, IMAGE_EXTS
 from .tts import VOICE_LIST, probe_audio_duration, synth
 from .runtime import DATA_DIR, VERSION, default_output, font_candidates
+from .delivery import deliver
+from .looks import LOOKS
 
 app = FastAPI(title="voice-mix")
 app.state.instance_id = uuid.uuid4().hex
@@ -122,6 +124,8 @@ def _get_job(job_id):
         state = json.loads(path.read_text(encoding="utf-8"))
         state["config"] = JobConfig.from_dict(state["config"])
         _MEDIA_ROOTS.add(state["config"].out_dir)
+        if state['config'].export_dir:
+            _MEDIA_ROOTS.add(state['config'].export_dir)
         _JOBS[job_id] = state
         return state
 # 允许通过 /api/media 访问的目录（输出目录 + 试听/背景音目录）
@@ -206,6 +210,7 @@ def api_voices():
     from .assets import FFMPEG, FFPROBE
     return {
         "version": VERSION,
+        "filters": [{"id": k, "label": v[0]} for k,v in LOOKS.items()],
         "default_output": default_output(),
         "engine_ready": bool(FFMPEG and FFPROBE),
         "voices": [{"id": v, "label": label} for v, label in VOICE_LIST],
@@ -319,15 +324,22 @@ def api_generate(req: GenerateReq):
         raise HTTPException(400, "；".join(errs))
 
     job_id = uuid.uuid4().hex[:12]
-    cfg.out_dir = str(Path(cfg.out_dir).resolve() / job_id)
-    return _start_job(job_id, cfg, lambda progress: run_batch(cfg,scripts,progress,req.preview_only)
-                      if scripts is not None else Pipeline(cfg, progress, preview_only=req.preview_only).run())
+    cfg.export_dir = str(Path(cfg.out_dir).resolve() / ('混剪-'+job_id))
+    cfg.out_dir = str(DATA_DIR / '_workspaces' / job_id)
+    def run(progress):
+        result = (run_batch(cfg,scripts,progress,req.preview_only) if scripts is not None
+                  else Pipeline(cfg, progress, preview_only=req.preview_only).run())
+        result['export_dir'] = cfg.export_dir
+        return result if req.preview_only else deliver(result,cfg.export_dir)
+    return _start_job(job_id, cfg, run)
 
 
 def _start_job(job_id, cfg, run):
 
     out_root = Path(cfg.out_dir).resolve()
     _MEDIA_ROOTS.add(str(out_root))
+    if cfg.export_dir:
+        _MEDIA_ROOTS.add(cfg.export_dir)
 
     state = {
         "id": job_id,
@@ -449,7 +461,8 @@ def api_edit(job_id: str, req: EditReq):
     if (not any(replacements) and all(abs(revised[j].dur - clips[i]["dur"]) < 0.002
             for j, i in enumerate(req.order)) and abs(overlap - (original.get("overlap") or 0)) < 0.002):
         length = original["total_dur"]
-    if length + 0.002 < original["narration_dur"] + state["config"].narration_delay:
+    # Planner durations are frame-quantized then rounded to centiseconds.
+    if length + 1 / fps < original["narration_dur"] + state["config"].narration_delay:
         raise HTTPException(400, "调整后画面时长不足以覆盖配音，请延长片段")
     subs = [dict(sub, text=value) for sub, value in zip(original["subs"], req.subtitles)]
     variant = Variant(**dict(original, clips=revised, subs=subs, overlap=overlap, total_dur=length,
@@ -460,18 +473,18 @@ def api_edit(job_id: str, req: EditReq):
         "sub_font", "sub_style", "sub_opacity", "sub_color", "sub_pos", "sub_size_ratio",
         "video_filter", "filter_strength", "sub_box_color", "bgm_file", "bgm_gain", "bgm_duck", "keep_original", "trans_style",
         "cover_title", "cover_template",
+        "template",
     }}
-    cfg = replace(state["config"], out_dir=str(out), **settings)
+    cfg = replace(state["config"], **state['result'].get('variant_settings',{}).get(str(req.index),{}))
+    cfg = replace(cfg, out_dir=str(out), **settings)
     errors = cfg.validate()
     if errors:
         raise HTTPException(400, "；".join(errors))
 
-    if req.draft:
-        cfg = replace(cfg, width=360, height=640, preset="ultrafast", crf=28)
-
     def run(progress):
         progress("render", 40, "生成粗剪预览" if req.draft else "重新渲染微调版本")
-        rows = render_batch(cfg, [variant], out / "videos", out / "parts", asset_map, jobs=1)
+        render_cfg = replace(cfg,width=360,height=640,preset='ultrafast',crf=28) if req.draft else cfg
+        rows = render_batch(render_cfg, [variant], out / "videos", DATA_DIR/'_render_cache', asset_map, jobs=1)
         if not rows[0]["ok"]:
             raise RuntimeError(rows[0]["error"])
         if not req.draft:
@@ -479,10 +492,68 @@ def api_edit(job_id: str, req: EditReq):
             cover = render_cover(cfg, variant, Path(rows[0]["path"]), out / "covers")
             if cover:
                 rows[0]["cover"] = str(cover)
-        return {"out_dir": str(out), "ok": 1, "total": 1, "seconds": 0, "draft": req.draft,
-                "results": rows, "variants": [variant.to_dict()], "revision": True}
+        result = {"out_dir": str(out), "ok": 1, "total": 1, "seconds": 0, "draft": req.draft,
+                  "results": rows, "variants": [variant.to_dict()], "revision": True}
+        if req.draft:
+            # The reviewed preview and subsequent export must use the same edit.
+            with _JOBS_LOCK:
+                target = state['result']
+                target['variants'] = [variant.to_dict() if v['index']==req.index else v for v in target['variants']]
+                per_variant=target.setdefault('variant_settings',{})
+                per_variant[str(req.index)] = dict(per_variant.get(str(req.index),{}),**settings)
+                target['results'] = [dict(rows[0],script_number=r.get('script_number')) if r['index']==req.index else r for r in target['results']]
+                _save_job(state)
+            return result
+        return deliver(result,cfg.export_dir or str(Path(cfg.out_dir)/'export'))
 
     return _start_job(edit_id, cfg, run)
+
+
+class ExportReq(BaseModel):
+    indices: list[int] | None = None
+    cover_template: str | None = None
+
+
+@app.post('/api/job/{job_id}/export')
+def api_export(job_id: str, req: ExportReq):
+    state = _get_job(job_id)
+    if not state or state['status'] != 'done':
+        raise HTTPException(404,'请先完成样板预览')
+    import copy
+    snapshot = copy.deepcopy(state['result'])
+    variants = [v for v in snapshot['variants'] if req.indices is None or v['index'] in req.indices]
+    if not variants:
+        raise HTTPException(400,'未选择可导出的样板')
+    if req.cover_template is not None and req.cover_template not in COVER_TEMPLATES:
+        raise HTTPException(400,'请选择有效封面样式')
+    export_id = uuid.uuid4().hex[:12]
+    cfg = replace(state['config'],out_dir=str(DATA_DIR/'_workspaces'/export_id))
+    destination = cfg.export_dir or str(Path(state['config'].out_dir)/'export')
+    def run(progress):
+        rows=[]
+        started=time.perf_counter()
+        for i,data in enumerate(variants):
+            progress('render',i/len(variants)*95,f'高清导出 {i+1}/{len(variants)}')
+            local=replace(cfg,**snapshot.get('variant_settings',{}).get(str(data['index']),{}))
+            if req.cover_template is not None:
+                local=replace(local,cover_template=req.cover_template)
+            variant=Variant(**dict(data,clips=[ClipSpec(**c) for c in data['clips']]))
+            asset_map={}
+            for c in variant.clips:
+                image=Path(c.src).suffix.lower() in IMAGE_EXTS
+                info=None if image else probe(c.src)
+                asset_map[c.src]=(bool(info and any(s.get('codec_type')=='audio' for s in info['streams'])),image)
+            row=render_batch(local,[variant],Path(cfg.out_dir)/'videos',DATA_DIR/'_render_cache',asset_map,jobs=1)[0]
+            if row['ok']:
+                cover=render_cover(local,variant,Path(row['path']),Path(cfg.out_dir)/'covers')
+                row['cover']=str(cover) if cover else ''
+                _material_history(c.src for c in variant.clips)
+            rows.append(row)
+        if not any(r['ok'] for r in rows):
+            raise RuntimeError(rows[0]['error'])
+        return deliver(dict(results=rows,variants=variants,ok=sum(r['ok'] for r in rows),total=len(rows),
+                            seconds=round(time.perf_counter()-started,1)),destination)
+    return _start_job(export_id,cfg,run)
 
 
 @app.get("/api/job/{job_id}/assets")
@@ -525,6 +596,9 @@ def api_cover(job_id: str, req: CoverReq):
         output = render_cover(cfg, variant, Path(row["path"]), folder, frame_time=req.time)
         if output is None:
             raise HTTPException(400, "该时刻无法取帧，请稍向前移动")
+        if cfg.export_dir:
+            from .delivery import publish_file
+            output=publish_file(output,Path(cfg.export_dir)/f'video_{req.index+1:03d}-cover.jpg')
         with _JOBS_LOCK:
             row["cover"] = str(output)
             _save_job(state)

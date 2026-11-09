@@ -21,6 +21,7 @@ def validate_scripts(scripts, count):
 def run_batch(cfg, scripts, progress, preview=False):
     scripts = validate_scripts(scripts,cfg.count)
     rows, variants, failures, used = [], [], [], set()
+    variant_settings={}
     start = time.perf_counter()
     for number,script in enumerate(scripts):
         progress('batch',number/len(scripts)*100,f'处理文案 {number+1}/{len(scripts)}')
@@ -40,9 +41,10 @@ def run_batch(cfg, scripts, progress, preview=False):
             v = dict(v,index=number*cfg.count+v['index'])
             used.update(c['src'] for c in v['clips'])
             variants.append(v)
+            variant_settings[str(v['index'])]={'script':script,'cover_title':child.cover_title}
     result = dict(out_dir=cfg.out_dir,initial_preview=preview,ok=sum(r['ok'] for r in rows),
                   total=len(scripts)*cfg.count,seconds=round(time.perf_counter()-start,1),
-                  results=rows,variants=variants,scripts=scripts,per_script=cfg.count)
+                  results=rows,variants=variants,scripts=scripts,per_script=cfg.count,variant_settings=variant_settings)
     Path(cfg.out_dir).mkdir(parents=True,exist_ok=True)
     (Path(cfg.out_dir)/'batch-manifest.json').write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
     return result

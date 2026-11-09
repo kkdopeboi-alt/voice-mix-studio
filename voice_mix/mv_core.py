@@ -1,6 +1,7 @@
 """Music-first timelines. All lyric times are absolute song seconds."""
 from __future__ import annotations
 
+from .looks import LOOKS
 import copy
 import difflib
 import math
@@ -249,6 +250,29 @@ def plan(project, history=(), regenerate=False):
     return p
 
 
+def background_plan(project, background):
+    """Use an imported source directly, respecting trim, framing and reuse choice."""
+    p=copy.deepcopy(project)
+    asset=next((a for a in p['assets'] if a['path']==background.get('path') and a['enabled'] and not a['image']),None)
+    if not asset:raise ValueError('URL 背景未加入当前项目或已禁用')
+    start=finite(background.get('start',0),'背景入点',0,asset['duration'])
+    end=finite(background.get('end',asset['duration']),'背景出点',0,asset['duration'])
+    if end-start<.1:raise ValueError('背景可用片段至少 0.1 秒')
+    begin,finish=p['range']
+    if end-start+.005<finish-begin and not p['settings']['allow_reuse']:
+        from .planner import MaterialsExhausted
+        raise MaterialsExhausted('背景片段短于歌曲范围，且未允许重复使用。请缩短制作范围、延长背景或勾选允许重复。')
+    clips=[];at=begin
+    while at<finish-.005:
+        d=min(end-start,finish-at)
+        clips.append(dict(src=asset['path'],start=start,dur=d,at=at,locked=False,
+                          focal_x=background.get('focal_x',.5),focal_y=background.get('focal_y',.5),
+                          filter='inherit',lyric_style='inherit',reason='URL 背景 · 保留原视频顺序'))
+        at+=d
+    p['clips']=clips
+    return p
+
+
 def validate_project(p):
     duration = finite(p['duration'], '歌曲时长', .1, 3600)
     start, end = p['range']
@@ -258,7 +282,7 @@ def validate_project(p):
         raise ValueError('制作范围至少 1 秒')
     s = p['settings']
     for key, allowed in {'style': STYLES, 'aspect': ['9:16','16:9','1:1'],
-                         'lyric_style': ['line','karaoke','scroll'], 'filter': ['none','clear','warm','cool','soft','mono']}.items():
+                         'lyric_style': ['line','karaoke','scroll'], 'filter': list(LOOKS)}.items():
         if s[key] not in allowed:
             raise ValueError(f'无效设置：{key}')
     if s.get('resolution','1080p') not in {'1080p','4k'} or s.get('bitrate_mbps',40) not in {20,40,80}:
@@ -288,7 +312,7 @@ def validate_project(p):
             raise ValueError('镜头时间轴存在空隙或重叠')
         for key in ('focal_x','focal_y'):
             finite(clip.get(key,.5), '构图中心', 0, 1)
-        if clip.get('filter','inherit') not in ['inherit','none','clear','warm','cool','soft','mono']:
+        if clip.get('filter','inherit') not in ['inherit',*LOOKS]:
             raise ValueError('无效镜头滤镜')
         if clip.get('lyric_style','inherit') not in ['inherit','line','karaoke','scroll']:
             raise ValueError('无效局部歌词样式')

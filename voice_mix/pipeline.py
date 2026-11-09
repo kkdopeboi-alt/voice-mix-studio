@@ -58,7 +58,7 @@ class Pipeline:
         out_root.mkdir(parents=True, exist_ok=True)
         videos_dir = out_root / "videos"
         covers_dir = out_root / "covers"
-        parts_dir = out_root / "parts"
+        parts_dir = DATA_DIR / "_render_cache"
         tts_dir = out_root / "tts"
         videos_dir.mkdir(exist_ok=True)
 
@@ -77,7 +77,9 @@ class Pipeline:
             self._check_cancel()
             if cfg.voice_vary:
                 import random as _r
-                pool = [v for v, _ in VOICE_LIST if v != cfg.voice]
+                family = cfg.voice.split('-')[0]
+                pool = [v for v, _ in VOICE_LIST if v != cfg.voice and v.split('-')[0] == family]
+                if not pool:pool=[cfg.voice]
                 rng = _r.Random(cfg.seed + i)
                 voice = rng.choice(pool) if rng.random() < 0.5 else cfg.voice
             else:

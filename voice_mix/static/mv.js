@@ -10,7 +10,7 @@
   shell.querySelector('.brand').after(mode);
   const root=document.createElement('section');root.className='mv-app';root.hidden=true;
   root.innerHTML=`
-  <div class="mv-top"><h1>音乐 MV</h1><span class="mv-status" id="mv-status" role="status" aria-live="polite">让画面跟随歌声，让故事留在音乐里。</span><button id="mv-cancel" hidden>取消任务</button><button id="mv-save">保存项目</button><button class="btn-primary" id="mv-preview">生成低清粗剪</button><button id="mv-export">导出高清成片</button></div>
+  <div class="mv-top"><h1>音乐 MV</h1><span class="mv-status" id="mv-status" role="status" aria-live="polite">让画面跟随歌声，让故事留在音乐里。</span><button id="mv-cancel" hidden>取消任务</button><button id="mv-save">保存项目</button><button class="btn-primary" id="mv-preview">生成低清粗剪</button><button id="mv-export">预览通过，确认导出</button></div>
   <div class="mv-busy" hidden id="mv-progress"><span></span></div>
   <div class="mv-grid">
     <aside class="mv-panel"><h2>01 / 歌曲与素材</h2><div class="mv-body">
@@ -25,8 +25,11 @@
       <label for="mv-model">识别模型</label><select id="mv-model"><option value="base">标准 · base（约 145 MB）</option><option value="small">精细 · small（约 480 MB）</option><option value="tiny">轻量 · tiny（约 75 MB）</option></select>
       <hr><label for="mv-paths">素材文件或文件夹 · 每行一个路径</label><textarea id="mv-paths" rows="3" placeholder="选择本地素材，或上传视频和图片"></textarea>
       <div class="mv-actions"><button id="mv-pick-assets">选择文件夹</button><button id="mv-upload-assets">上传素材</button><button id="mv-add-assets">加入项目</button></div><input hidden type="file" id="mv-assets-file" accept="video/*,image/*" multiple>
-      <label for="mv-url">URL 下载导入</label><div class="mv-row"><input id="mv-url" type="url" placeholder="https://…"><button id="mv-download">下载</button></div>
-      <small>支持下载器可解析的媒体链接。下载失败可改为本地上传，不会产生付费购买。</small>
+      <label for="mv-url">URL 直接作为 MV 背景</label><div class="mv-row"><input id="mv-url" type="url" placeholder="https://…"><button id="mv-download">导入背景</button></div>
+      <small>自动缓存并直接进入背景预览，无需再上传；正式导出使用完整下载质量。</small>
+      <label>站点登录验证（可选）</label><select id="mv-auth"><option value="">不使用登录态</option><option value="edge">读取 Edge 登录态</option><option value="chrome">读取 Chrome 登录态</option><option value="firefox">读取 Firefox 登录态</option><option value="safari">读取 Safari 登录态（Mac）</option><option value="cookies">导入 cookies.txt</option></select>
+      <input id="mv-cookies" type="file" accept=".txt" hidden><small>仅在你主动选择后读取登录态。Cookie 文件只用于本次导入，完成后删除，不写入项目或导出文件。</small>
+      <div id="mv-background-controls" hidden><label class="mv-check"><input id="mv-use-background" type="checkbox" checked>使用此 URL 视频作为连续背景</label><div class="mv-row"><label>入点（秒）<input id="mv-bg-start" type="number" min="0" step=".1" value="0"></label><label>出点（秒）<input id="mv-bg-end" type="number" min=".1" step=".1" value="1"></label></div><label>水平构图中心<input id="mv-bg-x" type="range" min="0" max="1" step=".01" value=".5"></label><label>垂直构图中心<input id="mv-bg-y" type="range" min="0" max="1" step=".01" value=".5"></label><button id="mv-bg-play">预览选中区间</button><small>编排镜头时应用；片段短于歌曲时按“允许重复”选项处理。之后仍可在镜头时间轴微调。</small></div>
       <label class="mv-check"><input type="checkbox" id="mv-visual" checked>分析画面内容，辅助匹配歌词意境</label><small>首次下载约 155 MB 场景模型。关闭后按文件名和自填标签匹配。</small>
       <label class="mv-check"><input type="checkbox" id="mv-reuse" checked>允许重复使用素材</label>
       <div class="mv-asset-list" id="mv-asset-list"></div>
@@ -56,6 +59,7 @@
   </div>
   <section class="mv-panel mv-timeline"><h2>歌词时间轴 <small>点击“定位”试听；可修改歌词、句子时间及逐字时间。修改后保存项目，再生成粗剪检查。</small></h2><div class="mv-table-wrap"><table class="mv-table"><thead><tr><th>试听</th><th>歌词 / 逐字时间</th><th>起点（秒）</th><th>终点（秒）</th><th>校对</th></tr></thead><tbody id="mv-lyric-rows"></tbody></table></div></section>`;
   shell.append(root);
+  let importedBackground=null,backgroundApplied='';
   let project=null, selected=0, taskId=null, rendered=false, uploading=0;
   const original=[...shell.children].filter(x=>x!==root&&!x.classList.contains('studio-header')&&!x.classList.contains('studio-status'));
   // The existing header has no class in older builds; preserve it explicitly.
@@ -106,7 +110,33 @@
   $('mv-import-lyrics').onclick=()=>$('mv-lyrics-file').click();
   $('mv-lyrics-file').onchange=action(async()=>{const f=$('mv-lyrics-file').files[0];if(f){$('mv-lyrics').value=await f.text();$('mv-input').value=f.name.toLowerCase().endsWith('.lrc')?'lrc':'text';$('mv-input').dispatchEvent(new Event('change'));}});
   $('mv-input').onchange=()=>{$('mv-lyrics').hidden=$('mv-input').value==='auto';};
-  $('mv-download').onclick=action(async()=>{const result=await job('/download',{url:$('mv-url').value.trim()});addPaths(result.paths);status('下载完成，素材已加入待导入列表。');});
+  $('mv-auth').onchange=()=>{$('mv-cookies').hidden=$('mv-auth').value!=='cookies';};
+  $('mv-download').onclick=action(async()=>{
+    let cookie_id='';const auth=$('mv-auth').value;
+    if(auth==='cookies') {
+      const file=$('mv-cookies').files[0];if(!file)throw new Error('请先选择 cookies.txt');
+      const response=await fetch('/api/mv/cookies',{method:'POST',body:file});const data=await response.json();
+      if(!response.ok)throw new Error(data.detail);cookie_id=data.cookie_id;
+    }
+    rendered=false;
+    const result=await job('/download',{url:$('mv-url').value.trim(),browser:auth==='cookies'?'':auth,cookie_id});
+    addPaths(result.paths);
+    if(project)await addAssets();
+    if(result.video_name){
+      importedBackground={path:result.paths.find(p=>p.endsWith(result.video_name))};
+      $('mv-background-controls').hidden=false;$('mv-bg-start').value=0;$('mv-bg-end').value=result.duration;
+      const v=$('mv-video');$('mv-audio').pause();$('mv-image').hidden=true;$('mv-overlay').hidden=true;
+      $('mv-stage').querySelector('.mv-placeholder').hidden=true;
+      v.src='/api/mv/imports/'+result.import_id+'/media?name='+encodeURIComponent(result.video_name);
+      v.hidden=false;v.controls=true;v.muted=false;v.style.objectFit='cover';
+      $('mv-preview-note').textContent='URL 背景已导入，可直接预览、裁剪区间和调整构图。编排后可继续修改镜头。';
+    }
+    status('URL 已直接导入背景，无需下载后再次上传。');
+  });
+  const background=()=>importedBackground&&$('mv-use-background').checked?{...importedBackground,start:+$('mv-bg-start').value,end:+$('mv-bg-end').value,focal_x:+$('mv-bg-x').value,focal_y:+$('mv-bg-y').value}:null;
+  $('mv-bg-play').onclick=action(async()=>{const v=$('mv-video');v.currentTime=+$('mv-bg-start').value;await v.play();});
+  $('mv-video').addEventListener('timeupdate',()=>{if(!$('mv-background-controls').hidden&&!rendered&&$('mv-video').currentTime>=+$('mv-bg-end').value)$('mv-video').pause();});
+  for(const id of ['mv-bg-x','mv-bg-y'])$(id).oninput=()=>{$('mv-video').style.objectPosition=(+$('mv-bg-x').value*100)+'% '+(+$('mv-bg-y').value*100)+'%';};
   const settings=()=>({resolution:$('mv-resolution').value,bitrate_mbps:+$('mv-bitrate').value,style:$('mv-style').value,aspect:$('mv-aspect').value,lyric_style:$('mv-lyric-style').value,
     font:$('mv-font').value,font_size:+$('mv-size').value,color:$('mv-color').value,highlight:$('mv-highlight').value,
     lyric_y:+$('mv-y').value,mask:+$('mv-mask').value,filter:$('mv-filter').value,allow_reuse:$('mv-reuse').checked});
@@ -118,12 +148,12 @@
   }
   async function saveProject(){if(!project){await createProject();return;}project.name=$('mv-name').value;project.settings=settings();project.visual_analysis=$('mv-visual').checked;project=await api('/projects/'+project.id,{version:project.version,project},'PUT');status('项目已保存');}
   async function addAssets(){if(!project){await createProject();return;}const paths=$('mv-paths').value.split('\n').map(x=>x.trim()).filter(Boolean);if(paths.length){project=await api('/projects/'+project.id+'/assets',{paths});drawAssets();}}
-  async function analyze(){if(!project)await createProject();else if($('mv-audio-path').value.trim()!==project.audio||$('mv-lyrics').value!==project.lyric_text||$('mv-input').value!==project.lyric_input){await createProject();}const result=await job('/projects/'+project.id+'/analyze',{});project=result.project;showProject();}
-  async function planning(regenerate=false){if(!project||!project.lyrics.length)await analyze();await saveProject();await addAssets();regenerate=regenerate||project.clips.some(c=>c.locked);const result=await job('/projects/'+project.id+'/plan',{regenerate});project=result.project;showProject();}
-  async function render(preview){if(!project||!project.lyrics.length)await analyze();if(!project.clips.length)await planning();await saveProject();const result=await job('/projects/'+project.id+'/render',{preview,out_dir:$('mv-out').value.trim()});project=result.project;drawHistory();playRender(project.renders.length-1);status(preview?'MV 粗剪已完成，可继续精修。':'高清 MV 已导出。');await refreshProjects();}
+  async function analyze(){if(!project)await createProject();else if($('mv-audio-path').value.trim()!==project.audio||$('mv-lyrics').value!==project.lyric_text||$('mv-input').value!==project.lyric_input){await createProject();}const result=await job('/projects/'+project.id+'/analyze',{});project=result.project;backgroundApplied=JSON.stringify(background());showProject();}
+  async function planning(regenerate=false){if(!project||!project.lyrics.length)await analyze();await saveProject();await addAssets();regenerate=regenerate||project.clips.some(c=>c.locked);const result=await job('/projects/'+project.id+'/plan',{regenerate,background:background()});project=result.project;backgroundApplied=JSON.stringify(background());showProject();}
+  async function render(preview){if(!project||!project.lyrics.length)await analyze();if(!project.clips.length||background()&&JSON.stringify(background())!==backgroundApplied)await planning();await saveProject();const result=await job('/projects/'+project.id+'/render',{preview,out_dir:$('mv-out').value.trim()});project=result.project;drawHistory();playRender(project.renders.length-1);status(preview?'MV 粗剪已完成，可继续精修。':'高清 MV 已导出。');await refreshProjects();}
   $('mv-analyze').onclick=action(analyze);$('mv-plan').onclick=action(()=>planning());$('mv-regen').onclick=action(()=>planning(true));
   $('mv-preview').onclick=action(()=>render(true));$('mv-export').onclick=action(()=>render(false));$('mv-save').onclick=action(saveProject);$('mv-add-assets').onclick=action(addAssets);
-  $('mv-new').onclick=()=>{if(project&&!confirm('当前修改是否已保存？确定将开始新项目。'))return;project=null;selected=0;rendered=false;$('mv-audio').pause();$('mv-video').pause();$('mv-name').value='新的 MV';$('mv-audio-path').value='';$('mv-lyrics').value='';$('mv-paths').value='';showProject();status('已开始新 MV。');};
+  $('mv-new').onclick=()=>{if(project&&!confirm('当前修改是否已保存？确定将开始新项目。'))return;project=null;selected=0;rendered=false;importedBackground=null;$('mv-background-controls').hidden=true;$('mv-audio').pause();$('mv-video').pause();$('mv-name').value='新的 MV';$('mv-audio-path').value='';$('mv-lyrics').value='';$('mv-paths').value='';showProject();status('已开始新 MV。');};
   async function refreshProjects(){const list=await api('/projects');$('mv-projects').innerHTML='<option value="">恢复 MV 项目…</option>'+list.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');if(project)$('mv-projects').value=project.id;}
   $('mv-projects').onchange=action(async()=>{if(!$('mv-projects').value)return;project=await api('/projects/'+$('mv-projects').value);selected=0;showProject();status('已恢复 MV 项目');});
   function applySettings(){if(!project)return;const s=project.settings;$('mv-resolution').value=s.resolution||'1080p';$('mv-bitrate').value=s.bitrate_mbps||40;const ids={style:'mv-style',aspect:'mv-aspect',lyric_style:'mv-lyric-style',font:'mv-font',font_size:'mv-size',color:'mv-color',highlight:'mv-highlight',lyric_y:'mv-y',mask:'mv-mask',filter:'mv-filter'};for(const [key,id]of Object.entries(ids))$(id).value=s[key];$('mv-reuse').checked=s.allow_reuse;}
@@ -193,5 +223,5 @@
   $('mv-edit-view').onclick=()=>seek($('mv-audio').currentTime);
   for(const id of ['mv-size','mv-color','mv-highlight','mv-y','mv-mask','mv-lyric-style','mv-aspect'])$(id).addEventListener('input',updateLyrics);
   let sceneNames=[];
-  Promise.all([studioMetadata(),api('/capabilities')]).then(([meta,caps])=>{$('mv-font').innerHTML=meta.fonts.map(f=>`<option value="${esc(f.path)}">${esc(f.label)}</option>`).join('');$('mv-out').placeholder=meta.default_output;sceneNames=caps.scenes;if(!caps.asr)status('本版本未安装识别引擎，可先使用 LRC；请安装带 MV 引擎的版本。');}).catch(e=>status(e.message,true));
+  Promise.all([studioMetadata(),api('/capabilities')]).then(([meta,caps])=>{$('mv-filter').innerHTML=meta.filters.map(f=>`<option value="${f.id}">${esc(f.label)}</option>`).join('');$('mv-filter').value='warm';$('mv-font').innerHTML=meta.fonts.map(f=>`<option value="${esc(f.path)}">${esc(f.label)}</option>`).join('');$('mv-out').placeholder=meta.default_output;sceneNames=caps.scenes;if(!caps.asr)status('本版本未安装识别引擎，可先使用 LRC；请安装带 MV 引擎的版本。');}).catch(e=>status(e.message,true));
 })();

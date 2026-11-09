@@ -4,6 +4,8 @@
 
 先准备卖点文案，再选择本地素材范围，一次生成多条带配音、字幕的视频，检查粗剪后继续微调和导出。
 
+**1.5.0：** 默认先生成可修改样板，预览通过后确认导出；一批视频集中在同一文件夹，只包含 MP4 和主动勾选的 JPG 封面。提供 30 个音色、16 种画面滤镜，URL 视频可直接导入 MV 背景并调整入出点与构图。
+
 > 一次拍摄，沉淀一份素材库；围绕不同卖点写一批文案，持续制作广告创意版本。
 
 [下载 Windows 程序](https://github.com/kkdopeboi-alt/voice-mix-studio/releases/latest) · [使用指南](docs/USER_GUIDE.md) · [场景与案例](docs/SCENARIOS.md) · [开发与构建](docs/DEVELOPMENT.md) · [版本记录](CHANGELOG.md)

@@ -17,8 +17,6 @@ from .assets import FFPROBE
 VOICE_LIST: List[Tuple[str, str]] = [
     ("zh-CN-XiaoxiaoNeural", "晓晓 · 女 · 温柔（推荐带货）"),
     ("zh-CN-XiaoyiNeural", "晓伊 · 女 · 活泼"),
-    ("zh-CN-XiaomoNeural", "晓墨 · 女 · 沉稳"),
-    ("zh-CN-XiaoxuanNeural", "晓萱 · 女 · 知性"),
     ("zh-CN-YunxiNeural", "云希 · 男 · 阳光年轻"),
     ("zh-CN-YunjianNeural", "云健 · 男 · 磁性解说"),
     ("zh-CN-YunyangNeural", "云扬 · 男 · 专业播音"),
@@ -28,6 +26,25 @@ VOICE_LIST: List[Tuple[str, str]] = [
     ("zh-HK-HiuMaanNeural", "曉曼 · 女 · 中国香港粤语"),
     ("zh-HK-WanLungNeural", "雲龍 · 男 · 中国香港粤语"),
     ("zh-TW-HsiaoChenNeural", "曉臻 · 女 · 中国台湾国语"),
+    ('zh-HK-HiuGaaiNeural', '曉佳 · 女 · 粤语'),
+    ('zh-TW-HsiaoYuNeural', '曉雨 · 女 · 台湾国语'),
+    ('zh-TW-YunJheNeural', '雲哲 · 男 · 台湾国语'),
+    ('en-US-AvaMultilingualNeural', 'Ava · 女 · 多语言'),
+    ('en-US-AndrewMultilingualNeural', 'Andrew · 男 · 多语言'),
+    ('en-US-EmmaMultilingualNeural', 'Emma · 女 · 多语言'),
+    ('en-US-BrianMultilingualNeural', 'Brian · 男 · 多语言'),
+    ('en-US-AriaNeural', 'Aria · 女 · 美式英语'),
+    ('en-US-GuyNeural', 'Guy · 男 · 美式英语'),
+    ('en-US-JennyNeural', 'Jenny · 女 · 美式英语'),
+    ('en-US-AnaNeural', 'Ana · 女 · 英语童声'),
+    ('en-GB-SoniaNeural', 'Sonia · 女 · 英式英语'),
+    ('en-GB-RyanNeural', 'Ryan · 男 · 英式英语'),
+    ('en-AU-NatashaNeural', 'Natasha · 女 · 澳洲英语'),
+    ('en-IN-NeerjaExpressiveNeural', 'Neerja · 女 · 印度英语'),
+    ('ja-JP-NanamiNeural', 'Nanami · 女 · 日语'),
+    ('ja-JP-KeitaNeural', 'Keita · 男 · 日语'),
+    ('ko-KR-SunHiNeural', 'SunHi · 女 · 韩语'),
+    ('ko-KR-InJoonNeural', 'InJoon · 男 · 韩语'),
 ]
 
 _VOICES = {v: label for v, label in VOICE_LIST}
@@ -168,7 +185,7 @@ def _silence_wav(dst: str, dur: float) -> None:
     )
 
 
-def synth_narration(
+def _synth_narration_uncached(
     sentences: List[Sentence],
     voice: str,
     out_path: str,
@@ -249,3 +266,30 @@ def synth_narration(
 
     total = probe_audio_duration(str(out))
     return subs, total
+
+
+_NARRATION_LOCK = __import__('threading').Lock()
+
+
+def synth_narration(sentences, voice, out_path, rate='+0%', lead=.2, work_dir=None, pause_style='natural'):
+    """Reuse identical narration and exact subtitle timing without another lossy encode."""
+    import hashlib
+    import json
+    import shutil
+    from .runtime import DATA_DIR
+    key=hashlib.sha256(json.dumps([[s.text for s in sentences],voice,rate,lead,pause_style,'v1'],ensure_ascii=False).encode()).hexdigest()
+    cache=DATA_DIR/'_tts_cache'/key
+    with _NARRATION_LOCK:
+        metadata=cache/'timing.json'
+        audio=cache/'narration.mp3'
+        if not metadata.exists() or not audio.exists():
+            cache.mkdir(parents=True,exist_ok=True)
+            subs,total=_synth_narration_uncached(sentences,voice,str(audio),rate,lead,str(cache/'sentences'),pause_style)
+            temp=cache/'timing.tmp'
+            temp.write_text(json.dumps([subs,total],ensure_ascii=False),encoding='utf-8')
+            temp.replace(metadata)
+        subs,total=json.loads(metadata.read_text(encoding='utf-8'))
+        destination=Path(out_path)
+        destination.parent.mkdir(parents=True,exist_ok=True)
+        if destination.resolve()!=audio.resolve():shutil.copy2(audio,destination)
+        return subs,total

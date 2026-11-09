@@ -12,6 +12,9 @@ Thumbs.db
 voice_mix/_bgm/
 voice_mix/_previews/
 voice_mix/_saved_jobs/
+voice_mix/_workspaces/
+voice_mix/_render_cache/
+voice_mix/_tts_cache/
 voice_mix/_mv/
 voice_mix/_mv_models/
 voice_mix/_mv_visual_cache/

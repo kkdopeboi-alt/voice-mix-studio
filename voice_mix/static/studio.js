@@ -33,8 +33,18 @@
   document.body.prepend(shell);
   const byId = id => document.getElementById(id);
   byId('studio-actions').append(draftButton, exportButton);
-  draftButton.textContent = '生成粗剪';
-  exportButton.textContent = '导出视频';
+  draftButton.textContent = '生成样板预览'; draftButton.hidden=true;
+  exportButton.textContent = '生成样板预览';
+  const invalidatePreviews = event => {
+    if (!event.target.closest('#inspector-content')) return;
+    if (event.target.closest('#cover-chips') || ['include-cover','cover-title'].includes(event.target.id)) return;
+    document.querySelectorAll('.cut-editor').forEach(editor=>{
+      const button=editor.querySelector('[data-confirm-export]');
+      if(button){editor.dataset.dirty='true';button.disabled=true;}
+    });
+  };
+  document.addEventListener('input',invalidatePreviews);
+  document.addEventListener('change',invalidatePreviews);
   byId('dock-actions').append(cancelButton);
   byId('studio-alert').append(offline);
   byId('source-content').append(script, assets);

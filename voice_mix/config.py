@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List
 from .runtime import default_font
+from .looks import LOOKS
 
 
 TEMPLATES: Dict[str, Dict[str, Any]] = {
@@ -69,6 +70,7 @@ class JobConfig:
     # ---- 素材 / 输出 ----
     src_dir: str = ""                      # 素材文件夹
     out_dir: str = ""                      # 输出文件夹
+    export_dir: str = ""                   # clean delivery folder, separate from workspace
     img_display: float = 3.0               # 单张图片默认展示秒数
 
     # ---- 音频 ----
@@ -179,7 +181,7 @@ class JobConfig:
             errs.append("配音延迟需在 0~10 秒之间")
         if self.bgm_file and not Path(self.bgm_file).is_file():
             errs.append("选中的配乐文件不存在")
-        if self.video_filter not in {"none", "clear", "warm", "cool", "soft", "mono"}:
+        if self.video_filter not in LOOKS:
             errs.append("请选择有效的视频滤镜")
         if not isinstance(self.filter_strength, (int, float)) or not 0 <= self.filter_strength <= 1:
             errs.append("滤镜强度需在 0~1 之间")

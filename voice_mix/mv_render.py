@@ -18,12 +18,7 @@ def run(cmd, timeout=3600):
         raise RuntimeError('MV 渲染失败：'+result.stderr.decode('utf-8','replace')[-1800:])
 
 
-def grade(name):
-    return {'none':'null','warm':'eq=contrast=1.04:saturation=1.04:gamma_r=1.025:gamma_b=.98',
-            'cool':'eq=contrast=1.04:saturation=.95:gamma_b=1.03',
-            'soft':'eq=contrast=.96:brightness=.015:saturation=.94',
-            'clear':'eq=contrast=1.08:saturation=1.08',
-            'mono':'eq=contrast=1.08:saturation=0'}[name]
+from .looks import grade
 
 
 def render(project, output, preview, progress):

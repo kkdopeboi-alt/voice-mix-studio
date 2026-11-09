@@ -304,6 +304,7 @@
 
     <div class="divider"></div>
     <div class="sec-label">封面设计</div>
+    <label><input type="checkbox" id="include-cover">导出独立封面 JPG（不勾选仅导出视频）</label>
     <div class="chips" id="cover-chips"></div>
     <div class="row" style="margin-top:12px">
       <div class="field" style="flex:1"><label>封面标题 <span style="font-weight:400">（留空 = 用文案第一句）</span></label>
@@ -371,7 +372,7 @@
     <div class="plog" id="p-log"></div>
     <div class="result-grid" id="result-grid">
       <div class="result-head"><b id="result-title"></b>
-        <button class="btn-ghost" onclick="openOutDir()">打开输出位置</button></div>
+        <button id="open-output-folder" class="btn-ghost" onclick="openOutDir()">打开输出位置</button></div>
       <div class="videos" id="videos"></div>
     </div>
   </div>
@@ -394,6 +395,7 @@ async function init() {
     $('offline-tip').style.display = 'block';
     return;
   }
+  $('video-filter').innerHTML=meta.filters.map(f=>`<option value="${f.id}">${f.label}</option>`).join('');
   $('voice').innerHTML = meta.voices.map(v => `<option value="${v.id}">${v.label}</option>`).join('');
   $('sub-color').replaceChildren(...Object.entries(meta.sub_colors).map(([value, label]) => new Option(label, value)));
   $('sub-font').innerHTML = meta.fonts.map(f => `<option value="${f.path}">${f.label}</option>`).join('');
@@ -524,7 +526,7 @@ let designImage = null;
 let designImageVersion = 0;
 
 function initDesignPreview() {
-  for (const id of ['script', 'cover-title', 'sub-font', 'sub-color', 'sub-style',
+  for (const id of ['include-cover', 'script', 'cover-title', 'sub-font', 'sub-color', 'sub-style',
     'sub-box-color', 'sub-pos', 'sub-size', 'sub-opacity', 'scale', 'video-filter', 'filter-strength']) {
     $(id).addEventListener('input', drawDesignPreviews);
     $(id).addEventListener('change', drawDesignPreviews);
@@ -565,6 +567,10 @@ function drawPreviewBackground(ctx) {
     cool: `sepia(${.12 * strength}) hue-rotate(${170 * strength}deg) saturate(${1 - .06 * strength})`,
     soft: `contrast(${1 - .06 * strength}) brightness(${1 + .025 * strength}) saturate(${1 - .1 * strength})`,
     mono: `grayscale(${strength}) contrast(${1 + .1 * strength})`,
+    cream: 'contrast(.97) brightness(1.025) saturate(.92)', film:'contrast(1.06) saturate(.87)',
+    food:'contrast(1.06) saturate(1.14)', product:'contrast(1.09)', forest:'saturate(.9) hue-rotate(8deg)',
+    sunset:'sepia(.18) saturate(1.08)', night:'contrast(1.1) brightness(.97)', vintage:'sepia(.15) saturate(.8)',
+    airy:'contrast(.94) brightness(1.04)', dramatic:'contrast(1.14) saturate(.85)',
   };
   ctx.save();
   ctx.filter = filters[$('video-filter').value] || 'none';
@@ -628,7 +634,7 @@ function paintDesignPreviews() {
   const lines = previewScriptLines().slice(0, 4).map(line => line.length > 160 ? line.slice(0, 160) + "…" : line);
   const first = lines[0] || '在这里预览你的文字';
   const template = document.querySelector('.tpl.active')?.dataset.id;
-  const design = document.querySelector('#cover-chips .chip.active')?.dataset.id || 'poster';
+  const design = $('include-cover').checked ? (document.querySelector('#cover-chips .chip.active')?.dataset.id || 'poster') : 'none';
   const colors = {white: '#fff', black: '#000', yellow: '#FFD54A',
     cyan: '#62E8EF', pink: '#FFA9CB', green: '#C2F970'};
   const masks = {black: '0,0,0', white: '255,255,255', navy: '23,40,68', rose: '122,32,70'};
@@ -717,10 +723,11 @@ function paintDesignPreviews() {
 
 let submittedConfig;
 let draftPlayer = null;
+let draftCompleted = null;
 let projectJobs = [];
 let projectCatalog = [];
 const projectStore = 'voice-mix.projects.v1';
-const projectControls = 'script-mode script-split pause-style sentence-cuts video-filter filter-strength script voice rate voice-vary count duration scale trans-style trans-dur img-dur text-preset sub-font sub-style sub-color sub-box-color sub-pos sub-size sub-opacity cover-title bgm-vol bgm-duck keep-original allow-reuse src-dir out-dir'.split(' ');
+const projectControls = 'include-cover script-mode script-split pause-style sentence-cuts video-filter filter-strength script voice rate voice-vary count duration scale trans-style trans-dur img-dur text-preset sub-font sub-style sub-color sub-box-color sub-pos sub-size sub-opacity cover-title bgm-vol bgm-duck keep-original allow-reuse src-dir out-dir'.split(' ');
 
 function readProjects() {
   return projectCatalog;
@@ -839,7 +846,7 @@ function collectConfig() {
     sub_pos: $('sub-pos').value,
     sub_size_ratio: parseInt($('sub-size').value) / 1000,
     // 封面
-    cover_template: cover ? cover.dataset.id : 'poster',
+    cover_template: $('include-cover').checked ? (cover ? cover.dataset.id : 'poster') : 'none',
     cover_title: $('cover-title').value.trim() || previewScriptLines()[0] || '',
     // BGM
     bgm_file: bgmSelected || '',
@@ -905,7 +912,7 @@ async function doGenerate(cfg = collectConfig()) {
   try {
     const r = await fetch('/api/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ config: cfg, preview_only: !!cfg.preview_only })
+      body: JSON.stringify({ config: cfg, preview_only: true })
     });
     const data = r.ok ? await r.json() : null;
     if (!r.ok) throw new Error(data?.detail || '提交失败');
@@ -918,7 +925,7 @@ async function doGenerate(cfg = collectConfig()) {
     pollTimer = setInterval(poll, 1500);
   } catch (e) {
     toast(e.message, true);
-    $('btn-go').disabled = false; $('btn-go').textContent = '导出视频';
+    $('btn-go').disabled = false; $('btn-go').textContent = '生成样板预览';
   }
 }
 
@@ -947,22 +954,24 @@ async function poll() {
 
     if (s.status === 'done') {
       clearInterval(pollTimer); pollTimer = null;
-      $('btn-go').disabled = false; $('btn-go').textContent = '导出视频';
+      $('btn-go').disabled = false; $('btn-go').textContent = '生成样板预览';
       if (s.result.draft && draftPlayer) {
         draftPlayer.src = '/api/media?path=' + encodeURIComponent(s.result.results[0].path);
         draftPlayer.hidden = false;
         draftPlayer.scrollIntoView({block: 'nearest'});
         draftPlayer = null;
+        if (draftCompleted) { draftCompleted(s.result); draftCompleted = null; }
         toast('粗剪预览已就绪');
       } else showResults(s.result);
     } else if (s.status === 'error' || s.status === 'cancelled') {
       clearInterval(pollTimer); pollTimer = null;
+      if (draftCompleted) { draftCompleted = null; draftPlayer = null; }
       $('p-detail').textContent = s.status === 'cancelled' ? '任务已取消' : `❌ 失败：${s.error}`;
       if (s.error_code === 'materials_exhausted' && submittedConfig && confirm(s.error)) {
         await doGenerate({...submittedConfig, reuse_fallback: true});
         return;
       }
-      $('btn-go').disabled = false; $('btn-go').textContent = '导出视频';
+      $('btn-go').disabled = false; $('btn-go').textContent = '生成样板预览';
     }
   } catch (e) { /* 网络抖动忽略 */ }
 }
@@ -970,8 +979,20 @@ async function poll() {
 function showResults(result, parentJob = jobId, append = false) {
   if (!projectJobs.includes(parentJob)) projectJobs.push(parentJob);
   outDirCurrent = result.out_dir;
+  $('open-output-folder').hidden=!!result.initial_preview;
   $('result-title').textContent =
-    `${result.initial_preview ? "粗剪预览" : "✅ 成功"} ${result.ok}/${result.total} 条 · 用时 ${Math.round(result.seconds)}s · 输出 ${result.out_dir}`;
+    `${result.initial_preview ? "待确认样板（正式导出使用高清原质量设置）" : "✅ 已导出"} ${result.ok}/${result.total} 条 · 用时 ${Math.round(result.seconds)}s${result.initial_preview ? ' · 检查并修改后确认导出' : ' · 输出 '+result.out_dir}`;
+  document.getElementById('confirm-batch-export')?.remove();
+  if (result.initial_preview) {
+    const approve = document.createElement('button');
+    approve.id='confirm-batch-export'; approve.className='btn-primary';
+    approve.textContent='预览通过，确认导出本批全部视频';
+    approve.onclick=()=> {
+      if (document.querySelector('.cut-editor[data-dirty="true"]')) return toast('有尚未预览的修改，请先更新对应样板预览',true);
+      confirmExport(parentJob);
+    };
+    $('result-title').after(approve);
+  }
   const box = $('videos');
   const cards = document.createElement('div');
   cards.innerHTML = result.results.filter(r => r.ok).map(r => {
@@ -995,6 +1016,17 @@ function showResults(result, parentJob = jobId, append = false) {
   if (!result.revision && !append) box.replaceChildren();
   box.append(...cards.children);
   $('result-grid').style.display = 'block';
+}
+
+async function confirmExport(parentJob, indices=null) {
+  if (pollTimer) return toast('请等待当前任务完成');
+  try {
+    const response=await fetch(`/api/job/${parentJob}/export`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({indices,cover_template:collectConfig().cover_template})});
+    const data=await response.json(); if(!response.ok)throw new Error(data.detail);
+    jobId=data.job_id;submittedConfig=null;$('btn-go').disabled=true;
+    $('progress-card').style.display='block';pollTimer=setInterval(poll,1000);
+  } catch(e) { toast(e.message,true); }
 }
 
 function makeEditor(parentJob, variant) {
@@ -1111,9 +1143,13 @@ function makeEditor(parentJob, variant) {
     return input;
   });
   const save = document.createElement('button');
-  save.textContent = '导出正式版';
+  save.textContent = '预览通过，确认导出此视频';
+  save.dataset.confirmExport='true';
   const preview = document.createElement('button');
-  preview.textContent = '生成粗剪预览';
+  preview.textContent = '更新样板预览';
+  const markDirty=()=>{editor.dataset.dirty='true';save.disabled=true;};
+  editor.addEventListener('input',markDirty);editor.addEventListener('change',markDirty);
+  tracks.addEventListener('click',e=>{if(e.target.tagName==='BUTTON')markDirty();});
   const submit = async draft => {
     if (pollTimer) return;
     save.disabled = preview.disabled = true;
@@ -1134,16 +1170,23 @@ function makeEditor(parentJob, variant) {
       if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '请检查入点输入');
       submittedConfig = null;
       draftPlayer = draft ? player : null;
+      draftCompleted = draft ? updated=>{
+        const card=editor.closest('.vcard');
+        const video=document.createElement('video');video.controls=true;video.preload='metadata';
+        video.src='/api/media?path='+encodeURIComponent(updated.results[0].path);
+        card.querySelector('.vshow').replaceChildren(video);
+        const fresh=makeEditor(parentJob,updated.variants[0]);editor.replaceWith(fresh);fresh.open=true;
+      } : null;
       jobId = data.job_id;
       $('btn-go').disabled = true;
       pollTimer = setInterval(poll, 1500);
     } catch (error) {
       toast(error.message, true);
     } finally {
-      save.disabled = preview.disabled = false;
+      preview.disabled=false;save.disabled=editor.dataset.dirty==='true';
     }
   };
-  save.onclick = () => submit(false);
+  save.onclick = () => confirmExport(parentJob,[variant.index]);
   preview.onclick = () => submit(true);
   editor.append(preview, save, player);
   return editor;

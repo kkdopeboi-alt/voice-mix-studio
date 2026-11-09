@@ -135,6 +135,31 @@ async def upload(request: Request, name: str):
 
 class URLRequest(BaseModel):
     url: str = Field(max_length=4000)
+    browser: str = ''
+    cookie_id: str = ''
+
+
+@router.post('/cookies')
+async def import_cookies(request: Request):
+    body=await request.body()
+    if len(body)>2*1024*1024 or not body.startswith((b'# Netscape HTTP Cookie File',b'# HTTP Cookie File')):
+        raise HTTPException(400,'请选择 Netscape 格式的 cookies.txt 文件（最大 2 MB）')
+    folder=ROOT/'credentials'
+    folder.mkdir(exist_ok=True)
+    token=uuid.uuid4().hex
+    (folder/(token+'.txt')).write_bytes(body)
+    return {'cookie_id':token}
+
+
+def download_error(error):
+    text=str(error)
+    if 'bot' in text.lower() or 'sign in' in text.lower() or 'login' in text.lower():
+        return '站点要求登录验证。请先在浏览器中正常打开该视频，再主动选择对应浏览器登录态，或导入该站点的 cookies.txt 后重试；凭据不保证消除站点限制。'
+    if any(x in text.lower() for x in ('decrypt','cookie database','dpapi','could not copy')):
+        return '无法读取浏览器登录态。可关闭对应浏览器后重试，或改用 Netscape 格式 cookies.txt；请勿发送账号密码。'
+    if '403' in text:
+        return '站点拒绝访问（403）。请检查该链接能否在浏览器正常播放，必要时选择登录态后重试。'
+    return 'URL 导入失败：'+re.sub(r'\x1b\[[0-9;]*m','',text)[-800:]
 
 
 def public_url(value):
@@ -148,6 +173,12 @@ def public_url(value):
 
 @router.post('/download')
 def download(req: URLRequest):
+    if req.browser not in {'','chrome','edge','firefox','brave','safari','opera'}:
+        raise HTTPException(400,'请选择支持的浏览器')
+    if req.cookie_id and not re.fullmatch('[0-9a-f]{32}',req.cookie_id):
+        raise HTTPException(400,'无效的登录凭据标识')
+    if req.browser and req.cookie_id:
+        raise HTTPException(400,'浏览器登录态与 cookies 文件请选择其中一种')
     def work(progress):
         public_url(req.url)
         try:
@@ -164,18 +195,44 @@ def download(req: URLRequest):
             progress(min(95,received/max(1,size)*90),'正在下载素材；站点限制或登录要求可能导致失败')
         options = {'outtmpl':str(target/'%(title).60s-%(id)s.%(ext)s'),
                    'noplaylist':True,'max_filesize':1024**3,
-                   'format':'best[ext=mp4]/best','socket_timeout':20,'retries':2,
+                   'format':'bestvideo+bestaudio/best' if FFMPEG else 'best',
+                   'merge_output_format':'mp4','socket_timeout':20,'retries':2,
                    'quiet':True,'no_warnings':True,'windowsfilenames':True,
                    'ffmpeg_location':str(Path(FFMPEG).parent) if FFMPEG else None,
                    'progress_hooks':[hook], 'restrictfilenames':False}
-        with yt_dlp.YoutubeDL(options) as ydl:
-            ydl.extract_info(req.url,download=True)
+        cookie_file=ROOT/'credentials'/(req.cookie_id+'.txt') if req.cookie_id else None
+        if cookie_file:
+            if not cookie_file.is_file():
+                raise ValueError('登录凭据已使用或已过期，请重新导入 cookies.txt')
+            options['cookiefile']=str(cookie_file)
+        if req.browser:
+            options['cookiesfrombrowser']=(req.browser,)
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                ydl.extract_info(req.url,download=True)
+        except Exception as error:
+            raise RuntimeError(download_error(error)) from None
+        finally:
+            if cookie_file:cookie_file.unlink(missing_ok=True)
         paths = [p for p in target.iterdir() if p.suffix.lower() in AUDIO|VIDEO_EXTS|IMAGE_EXTS]
         if not paths:
             raise ValueError('此链接未返回可用媒体，请下载到本地后上传')
         (target/'source.json').write_text(json.dumps({'url':req.url},ensure_ascii=False),encoding='utf-8')
-        return {'paths':[str(p.resolve()) for p in paths]}
+        videos=[p for p in paths if p.suffix.lower() in VIDEO_EXTS]
+        return {'paths':[str(p.resolve()) for p in paths], 'import_id':target.name,
+                'video_name':videos[0].name if videos else None,
+                'duration':float((probe(str(videos[0])) or {}).get('format',{}).get('duration',0)) if videos else 0}
     return launch(work)
+
+
+@router.get('/imports/{token}/media')
+def imported_media(token: str, name: str):
+    if not re.fullmatch('[0-9a-f]{12}',token) or Path(name).name!=name:
+        raise HTTPException(404,'导入素材不存在')
+    path=ROOT/'downloads'/token/name
+    if not path.is_file() or path.suffix.lower() not in VIDEO_EXTS|AUDIO:
+        raise HTTPException(404,'导入素材不存在')
+    return FileResponse(path)
 
 
 class CreateRequest(BaseModel):
@@ -315,6 +372,7 @@ def analyze(pid: str):
 
 class PlanRequest(BaseModel):
     regenerate: bool = False
+    background: dict | None = None
 
 
 @router.post('/projects/{pid}/plan')
@@ -323,6 +381,11 @@ def generate_plan(pid: str,req: PlanRequest):
     version = p['version']
     def work(progress):
         from .pipeline import _material_history
+        if req.background:
+            from .mv_core import background_plan
+            result=background_plan(p,req.background)
+            validate_project(result)
+            return {'project':save(result,version)}
         if p['visual_analysis']:
             from .mv_ai import tag_visuals
             tag_visuals(p['assets'],progress)
@@ -341,19 +404,34 @@ class RenderRequest(BaseModel):
     out_dir: str = ''
 
 
+def preview_signature(project):
+    import hashlib
+    keys=('audio','range','settings','clips','lyrics')
+    return hashlib.sha256(json.dumps({k:project[k] for k in keys},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+
 @router.post('/projects/{pid}/render')
 def export(pid: str,req: RenderRequest):
     p = read(pid)
     version = p['version']
+    signature=preview_signature(p)
+    if not req.preview and not any(r.get('preview') and r.get('signature')==signature for r in p['renders']):
+        raise HTTPException(400,'请先生成并检查当前修改的 MV 样板预览，再确认导出')
     def work(progress):
         from .mv_render import render
         from .server import _RENDER_LOCK, _MEDIA_ROOTS
         from .pipeline import _material_history
-        folder = Path(req.out_dir or default_output()).resolve() / ('MV-'+pid) / uuid.uuid4().hex[:8]
+        render_id=uuid.uuid4().hex[:8]
+        folder = ROOT / 'renders' / pid / render_id
         with _RENDER_LOCK:
             path = render(p,folder,req.preview,progress)
+        if not req.preview:
+            from .delivery import publish_file
+            destination=Path(req.out_dir or default_output()).resolve()/('MV-'+pid)
+            path=publish_file(path,destination/('MV-'+render_id+'.mp4'))
+            _MEDIA_ROOTS.add(str(destination))
         progress(98,'保存 MV 版本')
-        result = dict(path=path,preview=req.preview,created=time.time(),range=p['range'],aspect=p['settings']['aspect'])
+        result = dict(path=path,preview=req.preview,created=time.time(),range=p['range'],aspect=p['settings']['aspect'],signature=signature)
         p['renders'].append(result)
         # Check version before publishing history so an obsolete edit cannot overwrite a newer one.
         saved = save(p,version)

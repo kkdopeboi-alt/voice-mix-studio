@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voice-mix-studio"
-version = "1.4.2"
+version = "1.5.0"
 description = "A script-driven desktop video editor with narration, mixed media and editable drafts"
 readme = "README.md"
 license = "MIT"
