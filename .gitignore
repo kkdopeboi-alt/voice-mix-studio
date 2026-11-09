@@ -34,3 +34,8 @@ voice_mix/startup*.log
 voice_mix/webview*/
 !docs/media/*.png
 !docs/media/*.jpg
+/PROJECT_TEST_GUIDE.md
+/selfcheck.py
+/start_voice_mix.cmd
+/packaging/app.ico
+/packaging/app.icns

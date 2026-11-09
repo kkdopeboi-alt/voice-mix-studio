@@ -31,6 +31,6 @@ exe = EXE(pyz, analysis.scripts, [], exclude_binaries=True, name="VoiceMixStudio
 collection = COLLECT(exe, analysis.binaries, analysis.datas, strip=False, upx=False, name="VoiceMixStudio")
 if sys.platform == "darwin":
     app = BUNDLE(collection, name="VoiceMixStudio.app", bundle_identifier="app.voicemix.studio", icon=str(root / "packaging/app.icns"),
-                 info_plist={"CFBundleShortVersionString": "1.4.0", "CFBundleVersion": "1.4.0",
+                 info_plist={"CFBundleShortVersionString": "1.4.1", "CFBundleVersion": "1.4.1",
                              "NSHighResolutionCapable": True,
                              "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True}})

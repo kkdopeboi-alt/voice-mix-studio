@@ -43,7 +43,7 @@ python scripts/build_desktop.py
 Windows 本地安装与快捷方式同步：
 
 ```powershell
-python scripts/install_windows.py --archive release/VoiceMixStudio-1.4.0-Windows-x64.zip
+python scripts/install_windows.py --archive release/VoiceMixStudio-1.4.1-Windows-x64.zip
 ```
 
 安装工具使用 `%LOCALAPPDATA%/Programs/VoiceMixStudio/versions/` 版本目录，不覆盖应用数据。更新前保存并退出旧服务。

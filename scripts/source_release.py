@@ -10,7 +10,7 @@ parser.add_argument("--output", default=str(root / "release/VoiceMixStudio-sourc
 args = parser.parse_args()
 output = Path(args.output).resolve()
 output.parent.mkdir(parents=True, exist_ok=True)
-files = [root / name for name in ("README.md", "THIRD_PARTY.md", "CHANGELOG.md", "pyproject.toml", ".gitignore", "desktop_entry.py")]
+files = [root / name for name in ("README.md", "THIRD_PARTY.md", "CHANGELOG.md", "pyproject.toml", ".gitignore", ".gitattributes", "desktop_entry.py")]
 files += list((root / "voice_mix").glob("*.py"))
 for directory, patterns in [("voice_mix/static", ("*.html", "*.css", "*.js")),
                             ("scripts", ("*.py",)), ("tests", ("*.py", "*.cjs")),
